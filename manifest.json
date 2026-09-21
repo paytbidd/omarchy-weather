@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "payton.weather",
-  "name": "Weather",
-  "version": "1.0.0",
+  "name": "Forecast",
+  "version": "1.1.0",
   "author": "Payton Biddington",
-  "description": "Weather pill with temperature, daytime UV, rain when relevant, and a detail popup",
+  "description": "Forecast pill with temperature, daytime UV, rain when relevant, and a detail popup",
   "homepage": "https://github.com/paytbidd/omarchy-weather",
   "license": "MIT",
   "kinds": [
@@ -14,7 +14,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Weather",
+    "displayName": "Forecast",
     "description": "Temperature on the bar, UV by day, rain when it matters",
     "category": "Info",
     "allowMultiple": false,

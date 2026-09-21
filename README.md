@@ -1,6 +1,6 @@
-# Omarchy Weather
+# Omarchy Forecast
 
-[Omarchy](https://omarchy.org/) bar weather pill. Temperature stays on the bar.
+[Omarchy](https://omarchy.org/) bar weather pill (**Forecast**). Temperature stays on the bar.
 A UV chip shows during the day. A rain chip shows only while it is raining or
 due within about eight hours.
 
