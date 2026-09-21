@@ -1,0 +1,546 @@
+// weather.json holds {"name": ..., "latitude": ..., "longitude": ...} (see
+// omarchy-weather-location, which owns the format). Missing, blank, or
+// unparseable means the location is auto-detected from the IP address.
+function parseLocationFile(raw) {
+  var unset = { name: "", latitude: null, longitude: null }
+  try {
+    var data = JSON.parse(String(raw || ""))
+    if (!data || typeof data !== "object") return unset
+
+    var latitude = parseFloat(data.latitude)
+    var longitude = parseFloat(data.longitude)
+    var hasCoordinates = !isNaN(latitude) && !isNaN(longitude)
+    return {
+      name: typeof data.name === "string" ? data.name.replace(/^\s+|\s+$/g, "") : "",
+      latitude: hasCoordinates ? latitude : null,
+      longitude: hasCoordinates ? longitude : null
+    }
+  } catch (e) {
+    return unset
+  }
+}
+
+// wttr.in path segment for a configured location: exact coordinates when
+// both are present, the URL-encoded name as a fallback (hand-edited
+// weather.loc files may only carry a name), empty for IP auto-detect.
+function wttrLocationQuery(location, latitude, longitude) {
+  var lat = parseFloat(String(latitude))
+  var lon = parseFloat(String(longitude))
+  if (!isNaN(lat) && !isNaN(lon)) return lat + "," + lon
+
+  var name = String(location || "").replace(/^\s+|\s+$/g, "")
+  return name === "" ? "" : encodeURIComponent(name)
+}
+
+// Open-Meteo geocoding response → suggestion rows for the location picker.
+function parseGeocodingResults(raw) {
+  try {
+    var data = JSON.parse(String(raw || "{}"))
+    var results = data.results
+    if (!results || !results.length) return []
+
+    var out = []
+    for (var i = 0; i < results.length; i++) {
+      var r = results[i]
+      if (!r || !r.name || r.latitude === undefined || r.longitude === undefined) continue
+      var region = [r.admin1, r.country].filter(function(part) { return !!part }).join(", ")
+      out.push({
+        name: String(r.name),
+        description: region,
+        latitude: r.latitude,
+        longitude: r.longitude
+      })
+    }
+    return out
+  } catch (e) {
+    return []
+  }
+}
+
+function locationCommit(text, suggestions, selectedIndex) {
+  var name = String(text || "").replace(/^\s+|\s+$/g, "")
+  if (name === "") return { name: "", latitude: null, longitude: null }
+
+  var choices = suggestions || []
+  var index = Math.max(0, Math.min(parseInt(selectedIndex, 10) || 0, choices.length - 1))
+  var suggestion = choices[index]
+  if (suggestion) return suggestion
+
+  return { name: name, latitude: null, longitude: null }
+}
+
+function isFutureForecastDate(dateString, todayString) {
+  if (!dateString) return false
+  return String(dateString).slice(0, 10) > String(todayString || "")
+}
+
+function roundedTemp(value) {
+  if (value === undefined || value === null || value === "") return ""
+  var n = parseFloat(String(value))
+  return isNaN(n) ? "" : String(Math.round(n))
+}
+
+function celsiusToFahrenheit(value) {
+  if (value === undefined || value === null || value === "") return ""
+  var n = parseFloat(String(value))
+  return isNaN(n) ? "" : (n * 9 / 5) + 32
+}
+
+function formatTemp(value, useImperial) {
+  if (value === undefined || value === null || value === "") return ""
+  return value + "°" + (useImperial ? "F" : "C")
+}
+
+function normalizedUnit(value) {
+  return String(value || "").replace(/^\s+|\s+$/g, "").toLowerCase()
+}
+
+function localeUsesImperial(localeName) {
+  var name = String(localeName || "").replace(".", "_")
+  return /^en[_-]US($|[_.-])/.test(name) || /^en[_-]LR($|[_.-])/.test(name) || /^my($|[_.-])/.test(name)
+}
+
+function countryUsesImperial(countryName) {
+  var country = String(countryName || "")
+    .replace(/^\s+|\s+$/g, "")
+    .replace(/[._-]+/g, " ")
+    .toLowerCase()
+  if (!country) return null
+  if (country === "us" || country === "usa" || country === "united states" || country === "united states of america") return true
+  if (country === "liberia" || country === "myanmar" || country === "burma") return true
+  return false
+}
+
+function shouldUseImperial(unitOverride, localeName, countryName) {
+  var unit = normalizedUnit(unitOverride)
+  if (unit === "imperial") return true
+  if (unit === "metric") return false
+
+  var countryPreference = countryUsesImperial(countryName)
+  if (countryPreference !== null) return countryPreference
+
+  return localeUsesImperial(localeName)
+}
+
+function dayName(dateString, formatter) {
+  if (!dateString) return ""
+  var d = new Date(dateString + "T12:00:00")
+  if (isNaN(d.getTime())) return ""
+  if (formatter) return formatter(d)
+  return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d.getDay()]
+}
+
+function openMeteoForecastDays(dailyForecastReport, todayString) {
+  var daily = dailyForecastReport && dailyForecastReport.daily ? dailyForecastReport.daily : null
+  if (!daily || !daily.time) return []
+
+  var result = []
+  for (var i = 0; i < daily.time.length && result.length < 3; ++i) {
+    var date = daily.time[i]
+    if (!isFutureForecastDate(date, todayString)) continue
+
+    var maxC = daily.temperature_2m_max ? daily.temperature_2m_max[i] : ""
+    var minC = daily.temperature_2m_min ? daily.temperature_2m_min[i] : ""
+    result.push({
+      date: date,
+      maxtempC: roundedTemp(maxC),
+      mintempC: roundedTemp(minC),
+      maxtempF: roundedTemp(celsiusToFahrenheit(maxC)),
+      mintempF: roundedTemp(celsiusToFahrenheit(minC)),
+      openMeteoWeatherCode: daily.weather_code ? daily.weather_code[i] : null
+    })
+  }
+  return result
+}
+
+// Open-Meteo bundles current conditions with the daily forecast request and
+// answers far faster than wttr.in. Normalize them to wttr's
+// current_condition shape so the panel can use either source
+// interchangeably. Open-Meteo reports metric (°C, km/h).
+function openMeteoCurrentCondition(dailyForecastReport) {
+  var current = dailyForecastReport && dailyForecastReport.current ? dailyForecastReport.current : null
+  if (!current || current.temperature_2m === undefined || current.temperature_2m === null) return null
+  return {
+    temp_C: roundedTemp(current.temperature_2m),
+    temp_F: roundedTemp(celsiusToFahrenheit(current.temperature_2m)),
+    FeelsLikeC: roundedTemp(current.apparent_temperature),
+    FeelsLikeF: roundedTemp(celsiusToFahrenheit(current.apparent_temperature)),
+    windspeedKmph: roundedTemp(current.wind_speed_10m),
+    windspeedMiles: roundedTemp(current.wind_speed_10m * 0.621371),
+    humidity: roundedTemp(current.relative_humidity_2m),
+    uvIndex: formatUv(current.uv_index),
+    precipitation: current.precipitation,
+    rain: current.rain,
+    openMeteoWeatherCode: current.weather_code,
+    isDay: current.is_day
+  }
+}
+
+function parseUv(value) {
+  if (value === undefined || value === null || value === "") return null
+  var n = parseFloat(String(value))
+  return isNaN(n) ? null : n
+}
+
+function formatUv(value) {
+  var n = parseUv(value)
+  if (n === null) return ""
+  return String(Math.round(n))
+}
+
+function formatBarUv(value) {
+  var n = formatUv(value)
+  return n === "" ? "" : ("UV " + n)
+}
+
+// Daytime UV on the bar; hide at night and when the index rounds to 0 so
+// dawn/dusk do not leave a leftover "UV 0".
+function barShowsUv(current, uvValue) {
+  var uv = parseUv(uvValue)
+  if (uv === null || Math.round(uv) < 1) return false
+  if (current && current.isDay !== undefined && current.isDay !== null && current.isDay !== "")
+    return Number(current.isDay) === 1
+  return true
+}
+
+function parseMm(value) {
+  var n = parseUv(value)
+  return n === null ? 0 : n
+}
+
+// Open-Meteo rain/drizzle/freezing-rain/showers/thunder. Snow is out of
+// scope for the rain chip.
+function isRainWeatherCode(code) {
+  var c = parseInt(String(code), 10)
+  if (isNaN(c)) return false
+  if (c >= 51 && c <= 67) return true
+  if (c >= 80 && c <= 82) return true
+  if (c >= 95 && c <= 99) return true
+  return false
+}
+
+function isCurrentlyRaining(current) {
+  if (!current) return false
+  if (isRainWeatherCode(current.openMeteoWeatherCode) || isRainWeatherCode(current.weatherCode))
+    return true
+  return parseMm(current.precipitation) >= 0.1
+    || parseMm(current.rain) >= 0.1
+    || parseMm(current.precipMM) >= 0.1
+}
+
+function openMeteoHourlyPrecip(dailyForecastReport) {
+  var hourly = dailyForecastReport && dailyForecastReport.hourly ? dailyForecastReport.hourly : null
+  if (!hourly || !hourly.time) return []
+
+  var out = []
+  for (var i = 0; i < hourly.time.length; i++) {
+    out.push({
+      time: String(hourly.time[i] || ""),
+      precipitation: hourly.precipitation ? parseMm(hourly.precipitation[i]) : 0,
+      rain: hourly.rain ? parseMm(hourly.rain[i]) : 0,
+      probability: hourly.precipitation_probability ? parseUv(hourly.precipitation_probability[i]) : null,
+      weatherCode: hourly.weather_code ? hourly.weather_code[i] : null
+    })
+  }
+  return out
+}
+
+function isRainyHour(hour) {
+  if (!hour) return false
+  if (isRainWeatherCode(hour.weatherCode)) return true
+  if (hour.precipitation >= 0.2 || hour.rain >= 0.2) return true
+  if (hour.probability !== null && hour.probability >= 50) return true
+  return false
+}
+
+// Open-Meteo hourly stamps are local wall time without a zone suffix.
+function hourDelta(stamp, now) {
+  var raw = String(stamp || "")
+  if (raw.length < 13) return null
+  var y = parseInt(raw.slice(0, 4), 10)
+  var mo = parseInt(raw.slice(5, 7), 10) - 1
+  var d = parseInt(raw.slice(8, 10), 10)
+  var h = parseInt(raw.slice(11, 13), 10)
+  var mi = parseInt(raw.slice(14, 16), 10)
+  if (isNaN(mi)) mi = 0
+  if (isNaN(y) || isNaN(mo) || isNaN(d) || isNaN(h)) return null
+  var t = new Date(y, mo, d, h, mi, 0, 0)
+  var n = now instanceof Date ? now : new Date(now)
+  if (isNaN(t.getTime()) || isNaN(n.getTime())) return null
+  return (t.getTime() - n.getTime()) / 3600000
+}
+
+function formatRainEta(hours) {
+  var h = Number(hours)
+  if (!isFinite(h) || h < 1.5) return "RAIN 1h"
+  return "RAIN " + String(Math.round(h)) + "h"
+}
+
+function barRainReadout(current, hourly, now, horizonHours) {
+  var hidden = { visible: false, label: "" }
+  var horizon = Number(horizonHours)
+  if (!isFinite(horizon) || horizon <= 0) horizon = 8
+
+  if (isCurrentlyRaining(current))
+    return { visible: true, label: "RAIN" }
+
+  var hours = hourly || []
+  var soonDelta = Infinity
+  for (var i = 0; i < hours.length; i++) {
+    if (!isRainyHour(hours[i])) continue
+    var delta = hourDelta(hours[i].time, now)
+    if (delta === null) continue
+    if (delta < -0.5) continue
+    if (delta < 0.35) return { visible: true, label: "RAIN" }
+    if (delta <= horizon && delta < soonDelta) soonDelta = delta
+  }
+  if (!isFinite(soonDelta) || soonDelta === Infinity) return hidden
+  return { visible: true, label: formatRainEta(soonDelta) }
+}
+
+function openMeteoTodayHourlyUv(dailyForecastReport, todayString) {
+  var hourly = dailyForecastReport && dailyForecastReport.hourly ? dailyForecastReport.hourly : null
+  if (!hourly || !hourly.time || !hourly.uv_index) return []
+
+  var today = String(todayString || "").slice(0, 10)
+  if (!today) return []
+
+  var out = []
+  for (var i = 0; i < hourly.time.length; i++) {
+    var stamp = String(hourly.time[i] || "")
+    if (stamp.slice(0, 10) !== today) continue
+    var hour = parseInt(stamp.slice(11, 13), 10)
+    if (isNaN(hour)) continue
+    var uv = parseUv(hourly.uv_index[i])
+    out.push({ hour: hour, uv: uv === null ? 0 : Math.max(0, uv) })
+  }
+  return out
+}
+
+function uvSeriesMax(series) {
+  var max = 0
+  if (!series) return max
+  for (var i = 0; i < series.length; i++) {
+    if (series[i] && series[i].uv > max) max = series[i].uv
+  }
+  return max
+}
+
+function uvAtHour(series, hourFloat) {
+  if (!series || series.length === 0) return 0
+  var h = Number(hourFloat)
+  if (!isFinite(h)) h = 0
+  if (h <= series[0].hour) return series[0].uv
+
+  var last = series[series.length - 1]
+  if (h >= last.hour) return last.uv
+
+  for (var i = 1; i < series.length; i++) {
+    var b = series[i]
+    if (h > b.hour) continue
+    var a = series[i - 1]
+    var span = b.hour - a.hour
+    var t = span === 0 ? 0 : (h - a.hour) / span
+    return a.uv + (b.uv - a.uv) * t
+  }
+  return last.uv
+}
+
+function uvChartLayout(series, nowHour, width, height, pad) {
+  var empty = { bars: [], segs: [], nowX: 0, nowY: 0, hasNow: false }
+  pad = Number(pad)
+  if (!isFinite(pad) || pad < 0) pad = 5
+  width = Number(width)
+  height = Number(height)
+  if (!series || series.length < 2 || !isFinite(width) || !isFinite(height)) return empty
+  if (width <= pad * 2 || height <= pad * 2) return empty
+
+  var plotW = width - pad * 2
+  var plotH = height - pad * 2
+  var maxUv = Math.max(uvSeriesMax(series), 1)
+
+  function xFor(hour) {
+    return pad + (hour / 24) * plotW
+  }
+  function yFor(uv) {
+    return pad + (1 - uv / maxUv) * plotH
+  }
+
+  var bars = []
+  var barW = Math.max(1, plotW / 24)
+  for (var hour = 0; hour < 24; hour++) {
+    var uv = uvAtHour(series, hour + 0.5)
+    var barH = (uv / maxUv) * plotH
+    bars.push({
+      x: xFor(hour),
+      y: pad + plotH - barH,
+      w: barW,
+      h: Math.max(0, barH)
+    })
+  }
+
+  var segs = []
+  for (var i = 1; i < series.length; i++) {
+    var x1 = xFor(series[i - 1].hour)
+    var y1 = yFor(series[i - 1].uv)
+    var x2 = xFor(series[i].hour)
+    var y2 = yFor(series[i].uv)
+    var dx = x2 - x1
+    var dy = y2 - y1
+    segs.push({
+      x: x1,
+      y: y1,
+      length: Math.sqrt(dx * dx + dy * dy),
+      angle: Math.atan2(dy, dx) * 180 / Math.PI
+    })
+  }
+
+  var now = Number(nowHour)
+  if (!isFinite(now)) now = 0
+  now = Math.max(0, Math.min(24, now))
+
+  return {
+    bars: bars,
+    segs: segs,
+    nowX: xFor(now),
+    nowY: yFor(uvAtHour(series, now)),
+    hasNow: true
+  }
+}
+
+function currentIcon(current, fallback) {
+  if (!current) return fallback || ""
+  if (current.openMeteoWeatherCode !== undefined && current.openMeteoWeatherCode !== null)
+    return iconForOpenMeteoCode(current.openMeteoWeatherCode, Number(current.isDay) === 0)
+  if (current.weatherCode !== undefined && current.weatherCode !== null)
+    return iconForCode(current.weatherCode, false)
+  return fallback || ""
+}
+
+// wttr.in has no day/night flag. Use its icon only to fill an empty initial
+// state, never to replace a day/night-aware icon resolved by Open-Meteo.
+function provisionalCurrentIcon(current, resolvedIcon) {
+  return resolvedIcon || currentIcon(current, "")
+}
+
+function weatherResponseCompletesSave(hasConfiguredCoordinates, source) {
+  return hasConfiguredCoordinates ? source === "open-meteo" : source === "wttr"
+}
+
+function wttrNextForecastDays(report, todayString) {
+  var days = report && report.weather ? report.weather : []
+  var result = []
+  for (var i = 0; i < days.length && result.length < 3; ++i) {
+    if (isFutureForecastDate(days[i].date, todayString)) result.push(days[i])
+  }
+  return result
+}
+
+function buildForecastDays(report, dailyForecastReport, todayString) {
+  var days = openMeteoForecastDays(dailyForecastReport, todayString)
+  return days.length > 0 ? days : wttrNextForecastDays(report, todayString)
+}
+
+function bareTempForDay(day, kind, useImperial) {
+  if (!day) return ""
+  var v = useImperial
+    ? (kind === "max" ? day.maxtempF : day.mintempF)
+    : (kind === "max" ? day.maxtempC : day.mintempC)
+  if (v === undefined || v === null || v === "") return ""
+  return v + "°"
+}
+
+function dayIcon(day) {
+  if (!day) return ""
+  if (day.openMeteoWeatherCode !== undefined && day.openMeteoWeatherCode !== null)
+    return iconForOpenMeteoCode(day.openMeteoWeatherCode)
+  if (!day.hourly || day.hourly.length === 0) return ""
+
+  var best = day.hourly[0]
+  var bestDist = 9999
+  for (var i = 0; i < day.hourly.length; ++i) {
+    var t = parseInt(String(day.hourly[i].time || "0"), 10)
+    var dist = Math.abs(t - 1200)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = day.hourly[i]
+    }
+  }
+  return iconForCode(best.weatherCode, false)
+}
+
+function iconForOpenMeteoCode(code, night) {
+  var c = parseInt(String(code || "0"), 10)
+  if (c === 0) return iconForCode(113, night)
+  if (c === 1 || c === 2) return iconForCode(116, night)
+  if (c === 3) return iconForCode(119, night)
+  if (c === 45 || c === 48) return iconForCode(143, night)
+  if (c === 51 || c === 53 || c === 55 || c === 56 || c === 57 || c === 61) return iconForCode(266, night)
+  if (c === 63 || c === 65 || c === 66 || c === 67 || c === 80 || c === 81 || c === 82) return iconForCode(308, night)
+  if (c === 71 || c === 73 || c === 75 || c === 77 || c === 85 || c === 86) return iconForCode(338, night)
+  if (c === 95 || c === 96 || c === 99) return iconForCode(389, night)
+  return iconForCode(119, night)
+}
+
+function iconForCode(code, night) {
+  var c = parseInt(String(code || "0"), 10)
+  switch (c) {
+    case 113: return night ? "" : ""
+    case 116: return night ? "" : ""
+    case 119: case 122: return ""
+    case 143: case 248: case 260: return night ? "\ue346" : "\ue313"
+    case 176: case 263: case 353: return night ? "" : ""
+    case 179: case 227: case 230: case 323: case 326: case 368: return night ? "" : ""
+    case 182: case 185: case 281: case 284: case 311: case 314:
+    case 317: case 320: case 350: case 362: case 365: case 374: case 377: return ""
+    case 200: case 386: case 389: case 392: case 395: return ""
+    case 266: case 293: case 296: case 299: case 302: case 305: case 308: case 356: case 359: return ""
+    case 329: case 332: case 335: case 338: case 371: return ""
+    default: return ""
+  }
+}
+
+if (typeof module !== "undefined") {
+  module.exports = {
+    parseLocationFile: parseLocationFile,
+    wttrLocationQuery: wttrLocationQuery,
+    parseGeocodingResults: parseGeocodingResults,
+    locationCommit: locationCommit,
+    isFutureForecastDate: isFutureForecastDate,
+    roundedTemp: roundedTemp,
+    celsiusToFahrenheit: celsiusToFahrenheit,
+    formatTemp: formatTemp,
+    normalizedUnit: normalizedUnit,
+    localeUsesImperial: localeUsesImperial,
+    countryUsesImperial: countryUsesImperial,
+    shouldUseImperial: shouldUseImperial,
+    dayName: dayName,
+    openMeteoForecastDays: openMeteoForecastDays,
+    openMeteoCurrentCondition: openMeteoCurrentCondition,
+    parseUv: parseUv,
+    formatUv: formatUv,
+    formatBarUv: formatBarUv,
+    barShowsUv: barShowsUv,
+    parseMm: parseMm,
+    isRainWeatherCode: isRainWeatherCode,
+    isCurrentlyRaining: isCurrentlyRaining,
+    openMeteoHourlyPrecip: openMeteoHourlyPrecip,
+    isRainyHour: isRainyHour,
+    hourDelta: hourDelta,
+    formatRainEta: formatRainEta,
+    barRainReadout: barRainReadout,
+    openMeteoTodayHourlyUv: openMeteoTodayHourlyUv,
+    uvSeriesMax: uvSeriesMax,
+    uvAtHour: uvAtHour,
+    uvChartLayout: uvChartLayout,
+    currentIcon: currentIcon,
+    provisionalCurrentIcon: provisionalCurrentIcon,
+    weatherResponseCompletesSave: weatherResponseCompletesSave,
+    wttrNextForecastDays: wttrNextForecastDays,
+    buildForecastDays: buildForecastDays,
+    bareTempForDay: bareTempForDay,
+    dayIcon: dayIcon,
+    iconForOpenMeteoCode: iconForOpenMeteoCode,
+    iconForCode: iconForCode
+  }
+}
