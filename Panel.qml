@@ -118,6 +118,19 @@ Panel {
   property int forecastRetries: 0
   property int dailyForecastRetries: 0
 
+  // 1 MiB producer ceiling for every weather, forecast, geocoding, and
+  // location curl. Those payloads are kilobytes (a wttr.in j1 document is
+  // about 40 KiB). curl --max-filesize aborts the transfer at 1048576 bytes,
+  // including chunked responses that never send Content-Length, so
+  // StdioCollector cannot grow without a bound. --max-time still limits how
+  // long the socket may stay open. Handlers drop empty, non-zero-exit
+  // (partial / exit 63), and at-cap bodies before JSON.parse.
+  readonly property int maxResponseBytes: 1048576
+
+  function curlCommand(maxTime, url) {
+    return ["curl", "-fsS", "--max-time", String(maxTime), "--max-filesize", String(root.maxResponseBytes), url]
+  }
+
   // Click-to-edit state for the location label.
   property bool editingLocation: false
   property bool savingLocation: false
@@ -205,7 +218,7 @@ Panel {
       + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day,uv_index,precipitation,rain"
       + "&forecast_days=6"
       + "&timezone=auto"
-    dailyForecastProc.command = ["curl", "-fsS", "--max-time", "5", url]
+    dailyForecastProc.command = root.curlCommand(5, url)
     dailyForecastProc.running = true
   }
 
@@ -296,8 +309,8 @@ Panel {
 
   function startGeocode() {
     geocodeActiveQuery = geocodePendingQuery
-    geocodeProc.command = ["curl", "-fsS", "--max-time", "5",
-      "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(geocodeActiveQuery) + "&count=5&language=en&format=json"]
+    geocodeProc.command = root.curlCommand(5,
+      "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(geocodeActiveQuery) + "&count=5&language=en&format=json")
     geocodeProc.running = true
   }
 
@@ -358,32 +371,38 @@ Panel {
 
   Process {
     id: forecastProc
-    command: ["curl", "-fsS", "--max-time", "10", "https://wttr.in/" + root.locationQuery + "?format=j1"]
+    property string responseBody: ""
+    command: root.curlCommand(10, "https://wttr.in/" + root.locationQuery + "?format=j1")
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: {
-        var raw = String(text || "").trim()
-        if (!raw) {
-          root.scheduleForecastRetry()
-          return
-        }
-        try {
-          var parsed = JSON.parse(raw)
-          root.report = parsed
-          if (!root.hasConfiguredCoordinates)
-            root.label = Model.provisionalCurrentIcon(parsed.current_condition && parsed.current_condition[0], root.label)
-          root.forecastRetries = 0
-          if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "wttr"))
-            root.finishSavingLocation()
-          // Stored coordinates already drove the fast open-meteo fetch from
-          // refresh(); only auto-detect needs the area wttr reported.
-          if (isNaN(parseFloat(String(root.configuredLocationState.latitude))))
-            root.refreshDailyForecast(parsed)
-        } catch (e) {
-          // Keep last-good report visible, but try again shortly.
-          root.scheduleForecastRetry()
-        }
+      onStreamFinished: forecastProc.responseBody = String(text || "")
+    }
+    // Parse only after curl exits 0. --max-filesize (exit 63), timeouts, and
+    // HTTP errors leave a partial body that must not reach JSON.parse.
+    // exitStatus 1 is QProcess.CrashExit (SIGTERM from running=false); that
+    // cancellation must not be retried.
+    onExited: function(exitCode, exitStatus) {
+      var raw = forecastProc.responseBody
+      forecastProc.responseBody = ""
+      if (exitCode !== 0) {
+        if (exitStatus !== 1) root.scheduleForecastRetry()
+        return
       }
+      var parsed = Model.parseWttrReport(raw)
+      if (!parsed) {
+        root.scheduleForecastRetry()
+        return
+      }
+      root.report = parsed
+      if (!root.hasConfiguredCoordinates)
+        root.label = Model.provisionalCurrentIcon(parsed.current_condition && parsed.current_condition[0], root.label)
+      root.forecastRetries = 0
+      if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "wttr"))
+        root.finishSavingLocation()
+      // Stored coordinates already drove the fast open-meteo fetch from
+      // refresh(); only auto-detect needs the area wttr reported.
+      if (isNaN(parseFloat(String(root.configuredLocationState.latitude))))
+        root.refreshDailyForecast(parsed)
     }
   }
 
@@ -418,39 +437,48 @@ Panel {
 
   Process {
     id: dailyForecastProc
+    property string responseBody: ""
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: {
-        var raw = String(text || "").trim()
-        if (!raw) {
-          root.scheduleDailyForecastRetry()
-          return
-        }
-        try {
-          var parsed = JSON.parse(raw)
-          var parsedCurrent = Model.openMeteoCurrentCondition(parsed)
-          root.dailyForecastReport = parsed
-          root.label = Model.currentIcon(parsedCurrent, root.label)
-          root.dailyForecastRetries = 0
-          if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "open-meteo"))
-            root.finishSavingLocation()
-        } catch (e) {
-          // Keep last-good daily forecast visible, but try again shortly.
-          root.scheduleDailyForecastRetry()
-        }
+      onStreamFinished: dailyForecastProc.responseBody = String(text || "")
+    }
+    onExited: function(exitCode, exitStatus) {
+      var raw = dailyForecastProc.responseBody
+      dailyForecastProc.responseBody = ""
+      if (exitCode !== 0) {
+        if (exitStatus !== 1) root.scheduleDailyForecastRetry()
+        return
       }
+      var parsed = Model.parseOpenMeteoReport(raw)
+      if (!parsed) {
+        root.scheduleDailyForecastRetry()
+        return
+      }
+      var parsedCurrent = Model.openMeteoCurrentCondition(parsed)
+      root.dailyForecastReport = parsed
+      root.label = Model.currentIcon(parsedCurrent, root.label)
+      root.dailyForecastRetries = 0
+      if (Model.weatherResponseCompletesSave(root.hasConfiguredCoordinates, "open-meteo"))
+        root.finishSavingLocation()
     }
   }
 
   Process {
     id: geocodeProc
+    property string responseBody: ""
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: {
-        root.locationSuggestions = root.editingLocation ? Model.parseGeocodingResults(text) : []
-        root.suggestionIndex = 0
-        if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startGeocode)
-      }
+      onStreamFinished: geocodeProc.responseBody = String(text || "")
+    }
+    onExited: function(exitCode) {
+      var raw = geocodeProc.responseBody
+      geocodeProc.responseBody = ""
+      var suggestions = []
+      if (exitCode === 0 && root.editingLocation)
+        suggestions = Model.parseGeocodingResults(raw)
+      root.locationSuggestions = root.editingLocation ? suggestions : []
+      root.suggestionIndex = 0
+      if (root.geocodePendingQuery !== root.geocodeActiveQuery) Qt.callLater(root.startGeocode)
     }
   }
 
@@ -481,14 +509,19 @@ Panel {
 
   Process {
     id: locationProc
-    command: ["curl", "-fsS", "--max-time", "4", "https://wttr.in/?format=%l"]
+    property string responseBody: ""
+    command: root.curlCommand(4, "https://wttr.in/?format=%l")
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: {
-        var raw = String(text || "").trim()
-        if (!raw) return
-        root.wttrLocation = raw.split(",")[0]
-      }
+      onStreamFinished: locationProc.responseBody = String(text || "")
+    }
+    onExited: function(exitCode) {
+      var raw = locationProc.responseBody
+      locationProc.responseBody = ""
+      if (exitCode !== 0) return
+      var label = Model.boundedLocationLabel(raw)
+      if (!label) return
+      root.wttrLocation = label
     }
   }
 
