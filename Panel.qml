@@ -135,6 +135,7 @@ Panel {
   readonly property string barUvLabel: Model.barShowsUv(current, reportUv) ? Model.formatBarUv(reportUv) : ""
   readonly property var barRainReadout: Model.barRainReadout(current, hourlyPrecip, now, 8)
   readonly property string barRainLabel: barRainReadout && barRainReadout.visible ? barRainReadout.label : ""
+  readonly property var barSunClock: Model.barSunClock(dailyForecastReport, now)
   readonly property string barLabel: barTempLabel
 
   // wttr's current conditions when available; open-meteo's (bundled with the
@@ -199,10 +200,10 @@ Panel {
     var url = "https://api.open-meteo.com/v1/forecast"
       + "?latitude=" + encodeURIComponent(String(lat))
       + "&longitude=" + encodeURIComponent(String(lon))
-      + "&daily=weather_code,temperature_2m_max,temperature_2m_min"
+      + "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset"
       + "&hourly=uv_index,precipitation,precipitation_probability,weather_code,rain"
       + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day,uv_index,precipitation,rain"
-      + "&forecast_days=4"
+      + "&forecast_days=6"
       + "&timezone=auto"
     dailyForecastProc.command = ["curl", "-fsS", "--max-time", "5", url]
     dailyForecastProc.running = true
@@ -330,6 +331,10 @@ Panel {
 
   function dayName(dateString) {
     return Model.dayName(dateString, function(date) { return Qt.formatDate(date, "dddd") })
+  }
+
+  function shortDayName(dateString) {
+    return Model.dayName(dateString, function(date) { return Qt.formatDate(date, "ddd") }).toUpperCase()
   }
 
   // Bare degree value (no unit letter), used in the forecast row.
@@ -548,7 +553,7 @@ Panel {
           width: weatherScroll.width
           spacing: Style.space(14)
 
-      // ---- Hero row: big icon + temp on the left; location and stats stacked on the right.
+      // ---- Hero: condition and temperature on the left, location on the right.
       Item {
         width: parent.width
         height: Math.max(heroLeft.height, heroRight.height)
@@ -602,9 +607,8 @@ Panel {
 
         Column {
           id: heroRight
-          width: weatherStats.implicitWidth
           anchors.right: parent.right
-          anchors.rightMargin: Style.space(20)
+          anchors.rightMargin: Style.space(16)
           anchors.verticalCenter: parent.verticalCenter
           spacing: Style.space(12)
 
@@ -703,15 +707,21 @@ Panel {
               }
             }
           }
+        }
+      }
 
-          Row {
-            id: weatherStats
-            visible: !!root.current
-            spacing: Style.space(36)
+      Row {
+        id: weatherStats
+        visible: !!root.current
+        width: parent.width - Style.space(32)
+        anchors.horizontalCenter: parent.horizontalCenter
+        spacing: 0
 
             Column {
+              width: weatherStats.width / 4
               spacing: Style.space(5)
               Text {
+                anchors.horizontalCenter: parent.horizontalCenter
                 text: "FEELS"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
@@ -719,6 +729,7 @@ Panel {
                 font.letterSpacing: 1
               }
               Text {
+                anchors.horizontalCenter: parent.horizontalCenter
                 textFormat: Text.PlainText
                 text: root.reportFeels
                 color: root.bar.foreground
@@ -728,8 +739,10 @@ Panel {
             }
 
             Column {
+              width: weatherStats.width / 4
               spacing: Style.space(5)
               Text {
+                anchors.horizontalCenter: parent.horizontalCenter
                 text: "WIND"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
@@ -737,6 +750,7 @@ Panel {
                 font.letterSpacing: 1
               }
               Text {
+                anchors.horizontalCenter: parent.horizontalCenter
                 textFormat: Text.PlainText
                 text: root.reportWind
                 color: root.bar.foreground
@@ -746,8 +760,10 @@ Panel {
             }
 
             Column {
+              width: weatherStats.width / 4
               spacing: Style.space(5)
               Text {
+                anchors.horizontalCenter: parent.horizontalCenter
                 text: "HUMID"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
@@ -755,6 +771,7 @@ Panel {
                 font.letterSpacing: 1
               }
               Text {
+                anchors.horizontalCenter: parent.horizontalCenter
                 textFormat: Text.PlainText
                 text: root.reportHumidity
                 color: root.bar.foreground
@@ -764,8 +781,10 @@ Panel {
             }
 
             Column {
+              width: weatherStats.width / 4
               spacing: Style.space(5)
               Text {
+                anchors.horizontalCenter: parent.horizontalCenter
                 text: "UV"
                 color: Qt.darker(root.bar.foreground, 1.5)
                 font.family: root.bar.fontFamily
@@ -773,6 +792,7 @@ Panel {
                 font.letterSpacing: 1
               }
               Text {
+                anchors.horizontalCenter: parent.horizontalCenter
                 textFormat: Text.PlainText
                 text: root.reportUv
                 color: root.bar.foreground
@@ -783,10 +803,63 @@ Panel {
           }
 
           Item {
+            visible: root.barSunClock && root.barSunClock.visible === true
+            width: weatherStats.width
+            anchors.horizontalCenter: parent.horizontalCenter
+            height: riseLine.implicitHeight
+
+            Row {
+              id: riseLine
+              anchors.left: parent.left
+              spacing: Style.space(8)
+
+              Text {
+                text: "RISE"
+                color: Qt.darker(root.bar.foreground, 1.5)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.letterSpacing: 1
+                anchors.verticalCenter: parent.verticalCenter
+              }
+              Text {
+                textFormat: Text.PlainText
+                text: root.barSunClock ? root.barSunClock.sunriseFull : ""
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.title
+                anchors.verticalCenter: parent.verticalCenter
+              }
+            }
+
+            Row {
+              anchors.right: parent.right
+              spacing: Style.space(8)
+
+              Text {
+                text: "SET"
+                color: Qt.darker(root.bar.foreground, 1.5)
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.letterSpacing: 1
+                anchors.verticalCenter: parent.verticalCenter
+              }
+              Text {
+                textFormat: Text.PlainText
+                text: root.barSunClock ? root.barSunClock.sunsetFull : ""
+                color: root.bar.foreground
+                font.family: root.bar.fontFamily
+                font.pixelSize: Style.font.title
+                anchors.verticalCenter: parent.verticalCenter
+              }
+            }
+          }
+
+          Item {
             id: uvChart
             visible: weatherStats.visible && root.uvSeries.length > 1
-            width: weatherStats.implicitWidth
-            height: Style.space(28)
+            width: weatherStats.width
+            anchors.horizontalCenter: parent.horizontalCenter
+            height: Style.space(36)
 
             Repeater {
               model: root.uvChartLayout.bars
@@ -825,8 +898,6 @@ Panel {
               y: root.uvChartLayout.nowY - height / 2
             }
           }
-        }
-      }
 
       // ---- Geocoding suggestions while the location is being edited.
       Column {
@@ -893,56 +964,60 @@ Panel {
       // ---- Divider between current conditions and forecast.
       Rectangle {
         visible: root.forecastDays.length > 0
-        width: parent.width
+        width: parent.width - Style.space(32)
+        anchors.horizontalCenter: parent.horizontalCenter
         height: Style.spacing.hairline
         color: root.bar.foreground
         opacity: 0.12
       }
 
-      // ---- Forecast row: each cell has the day icon left of a day-name + hi/lo column.
-      //      Wrapped in an Item so the block of cells can be centered within the popup.
+      // Five upcoming days, evenly split. Short names so the row stays one line.
       Item {
         visible: root.forecastDays.length > 0
-        width: parent.width
-        height: forecastRow.height
+        width: parent.width - Style.space(32)
+        anchors.horizontalCenter: parent.horizontalCenter
+        height: forecastRow.implicitHeight
 
         Row {
           id: forecastRow
-          anchors.horizontalCenter: parent.horizontalCenter
-          spacing: Style.space(44)
+          width: parent.width
 
           Repeater {
             model: root.forecastDays
 
-            Row {
+            Item {
               required property var modelData
               required property int index
-              spacing: Style.space(10)
-
-              Text {
-                textFormat: Text.PlainText
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.dayIcon(modelData)
-                color: root.bar.foreground
-                font.family: root.bar.fontFamily
-                font.pixelSize: Style.font.display
-              }
+              width: forecastRow.width / Math.max(1, root.forecastDays.length)
+              height: dayCol.implicitHeight
 
               Column {
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.space(2)
+                id: dayCol
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: Style.space(3)
 
                 Text {
+                  anchors.horizontalCenter: parent.horizontalCenter
                   textFormat: Text.PlainText
-                  text: root.dayName(modelData.date).toUpperCase()
+                  text: root.shortDayName(modelData.date)
                   color: Qt.darker(root.bar.foreground, 1.4)
                   font.family: root.bar.fontFamily
                   font.pixelSize: Style.font.caption
                   font.letterSpacing: 1
                 }
 
+                Text {
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  textFormat: Text.PlainText
+                  text: root.dayIcon(modelData)
+                  color: root.bar.foreground
+                  font.family: root.bar.fontFamily
+                  font.pixelSize: Style.font.display
+                }
+
                 Row {
-                  spacing: Style.space(6)
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  spacing: Style.space(4)
 
                   Text {
                     textFormat: Text.PlainText

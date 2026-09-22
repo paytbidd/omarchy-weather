@@ -158,6 +158,60 @@ BarWidget {
           renderType: Text.NativeRendering
         }
       }
+
+      Item {
+        id: sunClock
+        // Copy the UV chip: bind the painted label, then break that binding
+        // once a real value arrives so the text stays put while the slot collapses.
+        property var clock: panelLoader.item ? panelLoader.item.barSunClock : null
+        property string liveRise: clock && clock.visible ? String(clock.sunrise || "") : ""
+        property string liveSet: clock && clock.visible ? String(clock.sunset || "") : ""
+        property string liveNext: clock && clock.visible ? String(clock.next || "") : ""
+        property string paintedRise: liveRise
+        property string paintedSet: liveSet
+        property string paintedNext: liveNext
+        property bool shown: liveRise !== "" && liveSet !== ""
+        onLiveRiseChanged: if (liveRise !== "") paintedRise = liveRise
+        onLiveSetChanged: if (liveSet !== "") paintedSet = liveSet
+        onLiveNextChanged: if (liveNext !== "") paintedNext = liveNext
+        width: shown ? sunRow.implicitWidth + Style.space(14) : 0
+        height: sunRow.implicitHeight
+        clip: true
+        opacity: shown ? 1 : 0
+
+        Behavior on width {
+          NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+        }
+        Behavior on opacity {
+          NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+        }
+
+        Row {
+          id: sunRow
+          x: Style.space(14)
+          spacing: Style.space(6)
+
+          Text {
+            textFormat: Text.PlainText
+            text: (sunClock.paintedNext === "sunrise" ? "↑ " : "") + sunClock.paintedRise
+            color: button.foreground
+            opacity: sunClock.paintedNext === "sunrise" ? 1 : 0.45
+            font.family: button.fontFamily
+            font.pixelSize: button.fontSize
+            renderType: Text.NativeRendering
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            text: (sunClock.paintedNext === "sunset" ? "↓ " : "") + sunClock.paintedSet
+            color: button.foreground
+            opacity: sunClock.paintedNext === "sunset" ? 1 : 0.45
+            font.family: button.fontFamily
+            font.pixelSize: button.fontSize
+            renderType: Text.NativeRendering
+          }
+        }
+      }
     }
   }
 }

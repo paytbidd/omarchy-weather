@@ -130,12 +130,15 @@ function dayName(dateString, formatter) {
   return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d.getDay()]
 }
 
+// Upcoming days shown under the popup, not counting today.
+var upcomingForecastDays = 5
+
 function openMeteoForecastDays(dailyForecastReport, todayString) {
   var daily = dailyForecastReport && dailyForecastReport.daily ? dailyForecastReport.daily : null
   if (!daily || !daily.time) return []
 
   var result = []
-  for (var i = 0; i < daily.time.length && result.length < 3; ++i) {
+  for (var i = 0; i < daily.time.length && result.length < upcomingForecastDays; ++i) {
     var date = daily.time[i]
     if (!isFutureForecastDate(date, todayString)) continue
 
@@ -191,6 +194,88 @@ function formatUv(value) {
 function formatBarUv(value) {
   var n = formatUv(value)
   return n === "" ? "" : ("UV " + n)
+}
+
+// Open-Meteo `timezone=auto` returns wall time with no offset ("2026-09-21T06:42").
+function parseLocalIso(iso) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(iso || ""))
+  if (!m) return null
+  var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), 0, 0)
+  return isNaN(d.getTime()) ? null : d
+}
+
+function formatSunTime(date, compact) {
+  if (!date || isNaN(date.getTime())) return ""
+  var h = date.getHours()
+  var min = date.getMinutes()
+  var h12 = h % 12
+  if (h12 === 0) h12 = 12
+  var mm = (min < 10 ? "0" : "") + min
+  if (compact === false) return h12 + ":" + mm + (h >= 12 ? " PM" : " AM")
+  return h12 + ":" + mm + (h >= 12 ? "p" : "a")
+}
+
+// Today's pair until sunset, then tomorrow's. `next` is the event still ahead
+// so the bar can mark that one and quiet the other.
+function barSunClock(dailyForecastReport, now) {
+  var empty = { visible: false, sunrise: "", sunset: "", sunriseFull: "", sunsetFull: "", next: "" }
+  var daily = dailyForecastReport && dailyForecastReport.daily ? dailyForecastReport.daily : null
+  if (!daily || !daily.sunrise || !daily.sunset) return empty
+
+  var events = []
+  var count = Math.min(daily.sunrise.length, daily.sunset.length)
+  for (var i = 0; i < count; i++) {
+    var up = parseLocalIso(daily.sunrise[i])
+    var down = parseLocalIso(daily.sunset[i])
+    if (up) events.push({ kind: "sunrise", at: up })
+    if (down) events.push({ kind: "sunset", at: down })
+  }
+  events.sort(function(a, b) { return a.at.getTime() - b.at.getTime() })
+  if (!events.length) return empty
+
+  // QML dates cross the import boundary, so instanceof Date is not reliable.
+  var moment = (now && typeof now.getTime === "function") ? now : new Date(now)
+  var t = moment.getTime()
+  if (isNaN(t)) return empty
+
+  var next = null
+  for (var j = 0; j < events.length; j++) {
+    if (events[j].at.getTime() > t) {
+      next = events[j]
+      break
+    }
+  }
+  if (!next) return empty
+
+  var sunrise = null
+  var sunset = null
+  if (next.kind === "sunrise") {
+    sunrise = next.at
+    for (var k = 0; k < events.length; k++) {
+      if (events[k].kind === "sunset" && events[k].at.getTime() > next.at.getTime()) {
+        sunset = events[k].at
+        break
+      }
+    }
+  } else {
+    sunset = next.at
+    for (var k2 = events.length - 1; k2 >= 0; k2--) {
+      if (events[k2].kind === "sunrise" && events[k2].at.getTime() < next.at.getTime()) {
+        sunrise = events[k2].at
+        break
+      }
+    }
+  }
+  if (!sunrise || !sunset) return empty
+
+  return {
+    visible: true,
+    sunrise: formatSunTime(sunrise),
+    sunset: formatSunTime(sunset),
+    sunriseFull: formatSunTime(sunrise, false),
+    sunsetFull: formatSunTime(sunset, false),
+    next: next.kind
+  }
 }
 
 // Daytime UV on the bar; hide at night and when the index rounds to 0 so
@@ -430,7 +515,7 @@ function weatherResponseCompletesSave(hasConfiguredCoordinates, source) {
 function wttrNextForecastDays(report, todayString) {
   var days = report && report.weather ? report.weather : []
   var result = []
-  for (var i = 0; i < days.length && result.length < 3; ++i) {
+  for (var i = 0; i < days.length && result.length < upcomingForecastDays; ++i) {
     if (isFutureForecastDate(days[i].date, todayString)) result.push(days[i])
   }
   return result
@@ -520,6 +605,9 @@ if (typeof module !== "undefined") {
     parseUv: parseUv,
     formatUv: formatUv,
     formatBarUv: formatBarUv,
+    parseLocalIso: parseLocalIso,
+    formatSunTime: formatSunTime,
+    barSunClock: barSunClock,
     barShowsUv: barShowsUv,
     parseMm: parseMm,
     isRainWeatherCode: isRainWeatherCode,
