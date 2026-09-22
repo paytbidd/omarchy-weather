@@ -4,7 +4,7 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "omarchy.weather"
+  moduleName: "payton.forecast"
 
   function injectPanel() {
     var target = panelLoader.item
