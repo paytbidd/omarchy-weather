@@ -32,29 +32,174 @@ function wttrLocationQuery(location, latitude, longitude) {
   return name === "" ? "" : encodeURIComponent(name)
 }
 
+// Remote weather, forecast, geocoding, and location bodies are collected in
+// full by StdioCollector. curl --max-filesize stops the producer at 1 MiB
+// (1048576 bytes) — real payloads are kilobytes (a wttr.in j1 document is
+// about 40 KiB) — and a body that reaches that ceiling is truncated, so it
+// is refused before JSON.parse. The tighter caps below bound what is copied
+// into QML models after a successful parse.
+var maxResponseChars = 1048576
+var maxLocationChars = 200
+var maxGeocodeResults = 8
+var maxGeocodeNameChars = 120
+var maxGeocodeDescriptionChars = 180
+var maxForecastDays = 8
+var maxHourlyPoints = 192
+var maxWttrHoursPerDay = 24
+var maxConditionSlots = 4
+var maxJsonStringChars = 1024
+var maxJsonDepth = 12
+var maxJsonKeys = 128
+var maxJsonArray = 192
+
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+// Empty, at-cap, and cut-off bodies are not parsed. A complete JSON object
+// is the only shape these endpoints return; anything else is partial.
+function remoteJsonText(raw) {
+  var text = String(raw === undefined || raw === null ? "" : raw)
+  if (text.length === 0 || text.length >= maxResponseChars) return ""
+  var trimmed = text.replace(/^\s+|\s+$/g, "")
+  if (!trimmed || trimmed.length >= maxResponseChars) return ""
+  if (trimmed.charAt(0) !== "{" || trimmed.charAt(trimmed.length - 1) !== "}") return ""
+  return trimmed
+}
+
+function jsonStructureWithinCaps(value, depth) {
+  if (value === null || value === undefined) return true
+  var kind = typeof value
+  if (kind === "string") return value.length <= maxJsonStringChars
+  if (kind === "number") return isFinite(value)
+  if (kind === "boolean") return true
+  if (kind !== "object") return false
+  if (depth > maxJsonDepth) return false
+  if (Array.isArray(value)) {
+    if (value.length > maxJsonArray) return false
+    for (var i = 0; i < value.length; i++) {
+      if (!jsonStructureWithinCaps(value[i], depth + 1)) return false
+    }
+    return true
+  }
+  var keys = Object.keys(value)
+  if (keys.length > maxJsonKeys) return false
+  for (var k = 0; k < keys.length; k++) {
+    if (keys[k].length > maxJsonStringChars) return false
+    if (!jsonStructureWithinCaps(value[keys[k]], depth + 1)) return false
+  }
+  return true
+}
+
+function parseRemoteJson(raw) {
+  var text = remoteJsonText(raw)
+  if (!text) return null
+  var data
+  try {
+    data = JSON.parse(text)
+  } catch (e) {
+    return null
+  }
+  if (!isPlainObject(data) || !jsonStructureWithinCaps(data, 0)) return null
+  return data
+}
+
+function arrayWithin(value, maxLen) {
+  if (value === undefined || value === null) return true
+  return Array.isArray(value) && value.length <= maxLen
+}
+
+function wttrReportWithinCaps(data) {
+  if (!isPlainObject(data)) return false
+  if (!arrayWithin(data.current_condition, maxConditionSlots)) return false
+  if (!arrayWithin(data.nearest_area, maxConditionSlots)) return false
+  if (!arrayWithin(data.weather, maxForecastDays)) return false
+  var days = data.weather || []
+  for (var i = 0; i < days.length; i++) {
+    var day = days[i]
+    if (!isPlainObject(day)) return false
+    if (!arrayWithin(day.hourly, maxWttrHoursPerDay)) return false
+  }
+  return true
+}
+
+function openMeteoReportWithinCaps(data) {
+  if (!isPlainObject(data)) return false
+  var daily = data.daily
+  if (daily !== undefined && daily !== null) {
+    if (!isPlainObject(daily)) return false
+    if (!arrayWithin(daily.time, maxForecastDays)) return false
+    if (!arrayWithin(daily.weather_code, maxForecastDays)) return false
+    if (!arrayWithin(daily.temperature_2m_max, maxForecastDays)) return false
+    if (!arrayWithin(daily.temperature_2m_min, maxForecastDays)) return false
+    if (!arrayWithin(daily.sunrise, maxForecastDays)) return false
+    if (!arrayWithin(daily.sunset, maxForecastDays)) return false
+  }
+  var hourly = data.hourly
+  if (hourly !== undefined && hourly !== null) {
+    if (!isPlainObject(hourly)) return false
+    if (!arrayWithin(hourly.time, maxHourlyPoints)) return false
+    if (!arrayWithin(hourly.uv_index, maxHourlyPoints)) return false
+    if (!arrayWithin(hourly.precipitation, maxHourlyPoints)) return false
+    if (!arrayWithin(hourly.precipitation_probability, maxHourlyPoints)) return false
+    if (!arrayWithin(hourly.weather_code, maxHourlyPoints)) return false
+    if (!arrayWithin(hourly.rain, maxHourlyPoints)) return false
+  }
+  return true
+}
+
+function parseWttrReport(raw) {
+  var data = parseRemoteJson(raw)
+  if (!data || !wttrReportWithinCaps(data)) return null
+  return data
+}
+
+function parseOpenMeteoReport(raw) {
+  var data = parseRemoteJson(raw)
+  if (!data || !openMeteoReportWithinCaps(data)) return null
+  return data
+}
+
+// wttr.in ?format=%l is a short "City, Region, Country" line. Refuse empty,
+// over-long, and multi-line bodies before they reach the location label.
+function boundedLocationLabel(raw) {
+  var text = String(raw === undefined || raw === null ? "" : raw)
+  if (text.length === 0 || text.length > maxLocationChars || text.length >= maxResponseChars) return ""
+  var trimmed = text.replace(/^\s+|\s+$/g, "")
+  if (!trimmed || trimmed.length > maxLocationChars) return ""
+  if (trimmed.indexOf("\n") !== -1 || trimmed.indexOf("\r") !== -1) return ""
+  var city = trimmed.split(",")[0].replace(/^\s+|\s+$/g, "")
+  if (!city || city.length > maxLocationChars) return ""
+  return city
+}
+
 // Open-Meteo geocoding response → suggestion rows for the location picker.
 function parseGeocodingResults(raw) {
-  try {
-    var data = JSON.parse(String(raw || "{}"))
-    var results = data.results
-    if (!results || !results.length) return []
+  var data = parseRemoteJson(raw)
+  if (!data) return []
+  var results = data.results
+  if (!results || !results.length || !Array.isArray(results)) return []
 
-    var out = []
-    for (var i = 0; i < results.length; i++) {
-      var r = results[i]
-      if (!r || !r.name || r.latitude === undefined || r.longitude === undefined) continue
-      var region = [r.admin1, r.country].filter(function(part) { return !!part }).join(", ")
-      out.push({
-        name: String(r.name),
-        description: region,
-        latitude: r.latitude,
-        longitude: r.longitude
-      })
-    }
-    return out
-  } catch (e) {
-    return []
+  var out = []
+  var limit = results.length < maxGeocodeResults ? results.length : maxGeocodeResults
+  for (var i = 0; i < limit; i++) {
+    var r = results[i]
+    if (!r || !r.name || r.latitude === undefined || r.longitude === undefined) continue
+    var name = String(r.name)
+    if (!name || name.length > maxGeocodeNameChars) continue
+    var latitude = Number(r.latitude)
+    var longitude = Number(r.longitude)
+    if (!isFinite(latitude) || !isFinite(longitude)) continue
+    var region = [r.admin1, r.country].filter(function(part) { return !!part }).join(", ")
+    if (region.length > maxGeocodeDescriptionChars) region = region.slice(0, maxGeocodeDescriptionChars)
+    out.push({
+      name: name,
+      description: region,
+      latitude: latitude,
+      longitude: longitude
+    })
   }
+  return out
 }
 
 function locationCommit(text, suggestions, selectedIndex) {
@@ -318,9 +463,12 @@ function openMeteoHourlyPrecip(dailyForecastReport) {
   if (!hourly || !hourly.time) return []
 
   var out = []
-  for (var i = 0; i < hourly.time.length; i++) {
+  var limit = hourly.time.length < maxHourlyPoints ? hourly.time.length : maxHourlyPoints
+  for (var i = 0; i < limit; i++) {
+    var stamp = String(hourly.time[i] || "")
+    if (stamp.length > maxJsonStringChars) continue
     out.push({
-      time: String(hourly.time[i] || ""),
+      time: stamp,
       precipitation: hourly.precipitation ? parseMm(hourly.precipitation[i]) : 0,
       rain: hourly.rain ? parseMm(hourly.rain[i]) : 0,
       probability: hourly.precipitation_probability ? parseUv(hourly.precipitation_probability[i]) : null,
@@ -391,8 +539,10 @@ function openMeteoTodayHourlyUv(dailyForecastReport, todayString) {
   if (!today) return []
 
   var out = []
-  for (var i = 0; i < hourly.time.length; i++) {
+  var limit = hourly.time.length < maxHourlyPoints ? hourly.time.length : maxHourlyPoints
+  for (var i = 0; i < limit && out.length < 24; i++) {
     var stamp = String(hourly.time[i] || "")
+    if (stamp.length > maxJsonStringChars) continue
     if (stamp.slice(0, 10) !== today) continue
     var hour = parseInt(stamp.slice(11, 13), 10)
     if (isNaN(hour)) continue
@@ -589,6 +739,19 @@ if (typeof module !== "undefined") {
   module.exports = {
     parseLocationFile: parseLocationFile,
     wttrLocationQuery: wttrLocationQuery,
+    maxResponseChars: maxResponseChars,
+    maxLocationChars: maxLocationChars,
+    maxGeocodeResults: maxGeocodeResults,
+    maxForecastDays: maxForecastDays,
+    maxHourlyPoints: maxHourlyPoints,
+    maxWttrHoursPerDay: maxWttrHoursPerDay,
+    maxJsonStringChars: maxJsonStringChars,
+    maxJsonArray: maxJsonArray,
+    remoteJsonText: remoteJsonText,
+    parseRemoteJson: parseRemoteJson,
+    parseWttrReport: parseWttrReport,
+    parseOpenMeteoReport: parseOpenMeteoReport,
+    boundedLocationLabel: boundedLocationLabel,
     parseGeocodingResults: parseGeocodingResults,
     locationCommit: locationCommit,
     isFutureForecastDate: isFutureForecastDate,

@@ -109,4 +109,75 @@ assert.equal(week[0].date, "2026-09-21")
 assert.equal(week[4].date, "2026-09-25")
 assert.equal(week[0].maxtempC, "21")
 
+assert.equal(Model.maxResponseChars, 1048576)
+assert.equal(Model.parseWttrReport(""), null)
+assert.equal(Model.parseWttrReport("{\"current_condition\":["), null)
+assert.equal(Model.parseOpenMeteoReport("a".repeat(Model.maxResponseChars)), null)
+assert.equal(Model.remoteJsonText("{" + "a".repeat(Model.maxResponseChars) + "}"), "")
+
+const smallWttr = Model.parseWttrReport(JSON.stringify({
+  current_condition: [{ temp_C: "1", weatherDesc: [{ value: "Clear" }] }],
+  nearest_area: [{ areaName: [{ value: "Paris" }] }],
+  weather: [{ date: "2026-09-21", hourly: [{ time: "1200", weatherCode: "113" }] }]
+}))
+assert.ok(smallWttr)
+assert.equal(smallWttr.current_condition[0].temp_C, "1")
+
+const tooManyDays = []
+for (let i = 0; i < Model.maxForecastDays + 1; i++) tooManyDays.push({ date: "2026-09-21", hourly: [] })
+assert.equal(Model.parseWttrReport(JSON.stringify({ weather: tooManyDays })), null)
+
+const longDay = { date: "2026-09-21", hourly: [] }
+for (let i = 0; i < Model.maxWttrHoursPerDay + 1; i++) longDay.hourly.push({ time: "1200" })
+assert.equal(Model.parseWttrReport(JSON.stringify({ weather: [longDay] })), null)
+
+const bulky = { current_condition: [], notes: [] }
+for (let i = 0; i < Model.maxJsonArray + 1; i++) bulky.notes.push("x")
+assert.equal(Model.parseWttrReport(JSON.stringify(bulky)), null)
+
+const longString = { current_condition: [{ temp_C: "x".repeat(Model.maxJsonStringChars + 1) }] }
+assert.equal(Model.parseWttrReport(JSON.stringify(longString)), null)
+
+const hourlyTimes = []
+for (let i = 0; i < 144; i++) hourlyTimes.push("2026-09-20T00:00")
+const meteoOk = Model.parseOpenMeteoReport(JSON.stringify({
+  current: { temperature_2m: 20 },
+  hourly: { time: hourlyTimes, uv_index: hourlyTimes.map(() => 1) },
+  daily: { time: ["2026-09-20", "2026-09-21"], temperature_2m_max: [20, 21], temperature_2m_min: [10, 11] }
+}))
+assert.ok(meteoOk)
+assert.equal(meteoOk.hourly.time.length, 144)
+
+const tooManyHours = hourlyTimes.concat(hourlyTimes)
+assert.equal(Model.parseOpenMeteoReport(JSON.stringify({ hourly: { time: tooManyHours } })), null)
+
+const geoResults = []
+for (let i = 0; i < 10; i++) {
+  geoResults.push({ name: "City " + i, admin1: "Region", country: "Country", latitude: i, longitude: i + 0.5 })
+}
+geoResults.push({ name: "x".repeat(121), latitude: 1, longitude: 2 })
+const suggestions = Model.parseGeocodingResults(JSON.stringify({ results: geoResults }))
+assert.equal(suggestions.length, Model.maxGeocodeResults)
+assert.equal(suggestions[0].name, "City 0")
+assert.equal(suggestions[0].latitude, 0)
+const skippedName = Model.parseGeocodingResults(JSON.stringify({
+  results: [
+    { name: "x".repeat(121), latitude: 1, longitude: 2 },
+    { name: "Kept", admin1: "Region", country: "Country", latitude: 3, longitude: 4 }
+  ]
+}))
+assert.equal(skippedName.length, 1)
+assert.equal(skippedName[0].name, "Kept")
+assert.equal(Model.parseGeocodingResults("a".repeat(Model.maxResponseChars)).length, 0)
+assert.equal(Model.parseGeocodingResults("{\"results\":[").length, 0)
+
+assert.equal(Model.boundedLocationLabel("  Boardman, Oregon, US\n"), "Boardman")
+assert.equal(Model.boundedLocationLabel(""), "")
+assert.equal(Model.boundedLocationLabel("x".repeat(Model.maxLocationChars + 1)), "")
+assert.equal(Model.boundedLocationLabel("City\nMore"), "")
+
+const cappedHours = []
+for (let i = 0; i < Model.maxHourlyPoints + 10; i++) cappedHours.push("2026-09-20T01:00")
+assert.equal(Model.openMeteoHourlyPrecip({ hourly: { time: cappedHours, precipitation: cappedHours.map(() => 1) } }).length, Model.maxHourlyPoints)
+
 console.log("payton.forecast model tests passed")
