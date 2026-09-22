@@ -109,4 +109,4 @@ assert.equal(week[0].date, "2026-09-21")
 assert.equal(week[4].date, "2026-09-25")
 assert.equal(week[0].maxtempC, "21")
 
-console.log("payton.weather model tests passed")
+console.log("payton.forecast model tests passed")

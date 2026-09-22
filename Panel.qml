@@ -7,8 +7,8 @@ import "Model.js" as Model
 
 Panel {
   id: root
-  moduleName: "omarchy.weather"
-  ipcTarget: "omarchy.weather"
+  moduleName: "payton.forecast"
+  ipcTarget: "payton.forecast"
   manageIpc: false
 
   property var anchorItem: null

@@ -24,7 +24,13 @@ Place it in the **center** section, next to the clock.
 Update later with:
 
 ```bash
-omarchy plugin update payton.weather
+omarchy plugin update payton.forecast
+```
+
+## Remove
+
+```bash
+omarchy plugin remove payton.forecast
 ```
 
 ## Bar
