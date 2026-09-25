@@ -360,10 +360,10 @@ function formatSunTime(date, compact) {
   return h12 + ":" + mm + (h >= 12 ? "p" : "a")
 }
 
-// Today's pair until sunset, then tomorrow's. `next` is the event still ahead
-// so the bar can mark that one and quiet the other.
+// Today's pair until sunset, then tomorrow's. The bar shows only `label`
+// (the next sunrise or sunset). The popup still uses both full times.
 function barSunClock(dailyForecastReport, now) {
-  var empty = { visible: false, sunrise: "", sunset: "", sunriseFull: "", sunsetFull: "", next: "" }
+  var empty = { visible: false, sunrise: "", sunset: "", sunriseFull: "", sunsetFull: "", next: "", label: "" }
   var daily = dailyForecastReport && dailyForecastReport.daily ? dailyForecastReport.daily : null
   if (!daily || !daily.sunrise || !daily.sunset) return empty
 
@@ -419,7 +419,8 @@ function barSunClock(dailyForecastReport, now) {
     sunset: formatSunTime(sunset),
     sunriseFull: formatSunTime(sunrise, false),
     sunsetFull: formatSunTime(sunset, false),
-    next: next.kind
+    next: next.kind,
+    label: (next.kind === "sunrise" ? "↑ " : "↓ ") + formatSunTime(next.at)
   }
 }
 

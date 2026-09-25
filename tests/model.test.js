@@ -72,6 +72,7 @@ const sunReport = {
 const beforeRise = Model.barSunClock(sunReport, new Date(2026, 8, 20, 5, 0, 0))
 assert.equal(beforeRise.visible, true)
 assert.equal(beforeRise.next, "sunrise")
+assert.equal(beforeRise.label, "↑ 6:42a")
 assert.equal(beforeRise.sunrise, "6:42a")
 assert.equal(beforeRise.sunset, "7:18p")
 assert.equal(beforeRise.sunriseFull, "6:42 AM")
@@ -79,11 +80,13 @@ assert.equal(beforeRise.sunsetFull, "7:18 PM")
 
 const afternoon = Model.barSunClock(sunReport, new Date(2026, 8, 20, 14, 0, 0))
 assert.equal(afternoon.next, "sunset")
+assert.equal(afternoon.label, "↓ 7:18p")
 assert.equal(afternoon.sunrise, "6:42a")
 assert.equal(afternoon.sunset, "7:18p")
 
 const atSunset = Model.barSunClock(sunReport, new Date(2026, 8, 20, 19, 18, 0))
 assert.equal(atSunset.next, "sunrise")
+assert.equal(atSunset.label, "↑ 6:43a")
 assert.equal(atSunset.sunrise, "6:43a")
 assert.equal(atSunset.sunset, "7:16p")
 

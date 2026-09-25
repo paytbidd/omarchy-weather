@@ -2,8 +2,7 @@
 
 [Omarchy](https://omarchy.org/) bar weather pill (**Forecast**). Temperature stays on the bar.
 A UV chip shows during the day. A rain chip shows only while it is raining or
-due within about eight hours. Sunrise and sunset sit beside that, with the
-next one marked.
+due within about eight hours. The next sunrise or sunset sits beside that.
 
 Click the pill for the detail popup. Conditions run in one row under the
 temperature. Sunrise and sunset sit on the next line. The bottom row is the
@@ -40,7 +39,7 @@ omarchy plugin remove payton.forecast
 | Temperature (`79°`) | Always, once a report is in |
 | `UV N` | Daytime and rounded UV ≥ 1 |
 | `RAIN` / `RAIN Nh` | Raining now, or rain within ~8 hours |
-| `6:42a  ↓ 7:18p` | Once sunrise and sunset are known. The arrow marks whichever is next; the other time stays dim. After sunset the pair rolls to tomorrow. |
+| `↑ 6:42a` / `↓ 7:18p` | Next sunrise or sunset only. After sunset it rolls to tomorrow's sunrise. |
 
 Night hides UV. Dry hours hide rain.
 
