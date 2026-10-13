@@ -607,7 +607,7 @@ Panel {
             Image {
               anchors.fill: parent
               visible: root.label !== ""
-              source: Model.iconSource(root.label, root.bar.foreground, 1.25)
+              source: Model.iconSource(root.label, root.bar.foreground)
               sourceSize.width: width
               sourceSize.height: height
               smooth: true
@@ -1056,7 +1056,7 @@ Panel {
                   anchors.horizontalCenter: parent.horizontalCenter
                   width: 20
                   height: 20
-                  source: Model.iconSource(root.dayIcon(modelData), root.bar.foreground, 1.5)
+                  source: Model.iconSource(root.dayIcon(modelData), root.bar.foreground)
                   sourceSize.width: width
                   sourceSize.height: height
                   smooth: true
