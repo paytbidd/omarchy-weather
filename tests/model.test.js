@@ -184,3 +184,18 @@ for (let i = 0; i < Model.maxHourlyPoints + 10; i++) cappedHours.push("2026-09-2
 assert.equal(Model.openMeteoHourlyPrecip({ hourly: { time: cappedHours, precipitation: cappedHours.map(() => 1) } }).length, Model.maxHourlyPoints)
 
 console.log("payton.forecast model tests passed")
+
+assert.equal(Model.iconForOpenMeteoCode(0, false), "sun")
+assert.equal(Model.iconForOpenMeteoCode(0, true), "moon")
+assert.equal(Model.iconForOpenMeteoCode(2, true), "cloud-moon")
+assert.equal(Model.iconForOpenMeteoCode(95), "cloud-lightning")
+for (const code of [0, 1, 3, 45, 51, 63, 71, 95, 999]) {
+  for (const night of [false, true]) {
+    assert.ok(Model.iconSource(Model.iconForOpenMeteoCode(code, night), "#fff").startsWith("data:image/svg+xml;utf8,"), code)
+  }
+}
+for (const code of [113, 116, 119, 143, 176, 179, 182, 200, 266, 329, 0]) {
+  assert.notEqual(Model.iconSource(Model.iconForCode(code, false), "#fff"), "", code)
+}
+assert.equal(Model.iconSource("", "#fff"), "")
+assert.ok(decodeURIComponent(Model.iconSource("sun", { r: 1, g: 0.5, b: 0 })).includes('stroke="rgb(255,128,0)"'))

@@ -721,19 +721,51 @@ function iconForOpenMeteoCode(code, night) {
 function iconForCode(code, night) {
   var c = parseInt(String(code || "0"), 10)
   switch (c) {
-    case 113: return night ? "" : ""
-    case 116: return night ? "" : ""
-    case 119: case 122: return ""
-    case 143: case 248: case 260: return night ? "\ue346" : "\ue313"
-    case 176: case 263: case 353: return night ? "" : ""
-    case 179: case 227: case 230: case 323: case 326: case 368: return night ? "" : ""
+    case 113: return night ? "moon" : "sun"
+    case 116: return night ? "cloud-moon" : "cloud-sun"
+    case 119: case 122: return "cloud"
+    case 143: case 248: case 260: return "cloud-fog"
+    case 176: case 263: case 353: return "cloud-drizzle"
+    case 179: case 227: case 230: case 323: case 326: case 368: return "cloud-snow"
     case 182: case 185: case 281: case 284: case 311: case 314:
-    case 317: case 320: case 350: case 362: case 365: case 374: case 377: return ""
-    case 200: case 386: case 389: case 392: case 395: return ""
-    case 266: case 293: case 296: case 299: case 302: case 305: case 308: case 356: case 359: return ""
-    case 329: case 332: case 335: case 338: case 371: return ""
-    default: return ""
+    case 317: case 320: case 350: case 362: case 365: case 374: case 377: return "cloud-hail"
+    case 200: case 386: case 389: case 392: case 395: return "cloud-lightning"
+    case 266: case 293: case 296: case 299: case 302: case 305: case 308: case 356: case 359: return "cloud-rain"
+    case 329: case 332: case 335: case 338: case 371: return "snowflake"
+    default: return "cloud"
   }
+}
+
+// Lucide icons (ISC, https://lucide.dev), 24x24 stroke paths.
+var lucideCloud = "M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"
+var lucideIcons = {
+  "sun": ["M12 2v2", "M12 20v2", "m4.93 4.93 1.41 1.41", "m17.66 17.66 1.41 1.41", "M2 12h2", "M20 12h2", "m6.34 17.66-1.41 1.41", "m19.07 4.93-1.41 1.41", "M16 12a4 4 0 1 1-8 0a4 4 0 1 1 8 0"],
+  "moon": ["M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"],
+  "cloud-sun": ["M12 2v2", "m4.93 4.93 1.41 1.41", "M20 12h2", "m19.07 4.93-1.41 1.41", "M15.947 12.65a4 4 0 0 0-5.925-4.128", "M13 22H7a5 5 0 1 1 4.9-6H13a3 3 0 0 1 0 6Z"],
+  "cloud-moon": ["M10.188 8.5A6 6 0 0 1 16 4a1 1 0 0 0 6 6 6 6 0 0 1-3 5.197", "M13 16a3 3 0 1 1 0 6H7a5 5 0 1 1 4.9-6Z"],
+  "cloud": ["M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"],
+  "cloud-fog": [lucideCloud, "M16 17H7", "M17 21H9"],
+  "cloud-drizzle": [lucideCloud, "M8 19v1", "M8 14v1", "M16 19v1", "M16 14v1", "M12 21v1", "M12 16v1"],
+  "cloud-rain": [lucideCloud, "M16 14v6", "M8 14v6", "M12 16v6"],
+  "cloud-snow": [lucideCloud, "M8 15h.01", "M8 19h.01", "M12 17h.01", "M12 21h.01", "M16 15h.01", "M16 19h.01"],
+  "cloud-hail": [lucideCloud, "M16 14v2", "M8 14v2", "M16 20h.01", "M8 20h.01", "M12 16v2", "M12 22h.01"],
+  "cloud-lightning": ["M6 16.326A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 .5 8.973", "m13 12-3 5h4l-3 5"],
+  "snowflake": ["M2 12h20", "M12 2v20", "m20 16-4-4 4-4", "m4 8 4 4-4 4", "m16 4-4 4-4-4", "m8 20 4-4 4 4"]
+}
+
+// SVG data URL for an icon name, stroked in `color` so it follows the theme.
+function iconSource(name, color) {
+  var paths = lucideIcons[name]
+  if (!paths) return ""
+  // QML colors stringify as #aarrggbb, which SVG does not read.
+  var stroke = color && color.r !== undefined
+    ? "rgb(" + Math.round(color.r * 255) + "," + Math.round(color.g * 255) + "," + Math.round(color.b * 255) + ")"
+    : String(color)
+  var body = ""
+  for (var i = 0; i < paths.length; ++i) body += '<path d="' + paths[i] + '"/>'
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="' + stroke +
+    '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + body + '</svg>'
+  return "data:image/svg+xml;utf8," + encodeURIComponent(svg)
 }
 
 if (typeof module !== "undefined") {
@@ -793,6 +825,7 @@ if (typeof module !== "undefined") {
     bareTempForDay: bareTempForDay,
     dayIcon: dayIcon,
     iconForOpenMeteoCode: iconForOpenMeteoCode,
-    iconForCode: iconForCode
+    iconForCode: iconForCode,
+    iconSource: iconSource
   }
 }
