@@ -364,7 +364,7 @@ Panel {
     return Model.iconForOpenMeteoCode(code)
   }
 
-  // wttr.in code → Lucide icon name (see Model.iconSource).
+  // wttr.in code → Phosphor icon name (see Model.iconSource).
   function iconForCode(code, night) {
     return Model.iconForCode(code, night)
   }
