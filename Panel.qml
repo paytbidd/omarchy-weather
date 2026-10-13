@@ -601,8 +601,8 @@ Panel {
           Item {
             id: heroIcon
             anchors.verticalCenter: parent.verticalCenter
-            width: 44
-            height: 44
+            width: 56
+            height: 56
 
             Image {
               anchors.fill: parent
@@ -1054,8 +1054,8 @@ Panel {
 
                 Image {
                   anchors.horizontalCenter: parent.horizontalCenter
-                  width: 20
-                  height: 20
+                  width: Style.font.display
+                  height: Style.font.display
                   source: Model.iconSource(root.dayIcon(modelData), root.bar.foreground)
                   sourceSize.width: width
                   sourceSize.height: height
