@@ -601,13 +601,13 @@ Panel {
           Item {
             id: heroIcon
             anchors.verticalCenter: parent.verticalCenter
-            width: 56
-            height: 56
+            width: 44
+            height: 44
 
             Image {
               anchors.fill: parent
               visible: root.label !== ""
-              source: Model.iconSource(root.label, root.bar.foreground)
+              source: Model.iconSource(root.label, root.bar.foreground, 1.25)
               sourceSize.width: width
               sourceSize.height: height
               smooth: true
@@ -1054,9 +1054,9 @@ Panel {
 
                 Image {
                   anchors.horizontalCenter: parent.horizontalCenter
-                  width: Style.font.display
-                  height: Style.font.display
-                  source: Model.iconSource(root.dayIcon(modelData), root.bar.foreground)
+                  width: 20
+                  height: 20
+                  source: Model.iconSource(root.dayIcon(modelData), root.bar.foreground, 1.5)
                   sourceSize.width: width
                   sourceSize.height: height
                   smooth: true

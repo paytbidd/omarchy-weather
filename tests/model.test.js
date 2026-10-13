@@ -199,3 +199,5 @@ for (const code of [113, 116, 119, 143, 176, 179, 182, 200, 266, 329, 0]) {
 }
 assert.equal(Model.iconSource("", "#fff"), "")
 assert.ok(decodeURIComponent(Model.iconSource("sun", { r: 1, g: 0.5, b: 0 })).includes('stroke="rgb(255,128,0)"'))
+assert.ok(decodeURIComponent(Model.iconSource("sun", "#fff")).includes('stroke-width="2"'))
+assert.ok(decodeURIComponent(Model.iconSource("sun", "#fff", 1.25)).includes('stroke-width="1.25"'))

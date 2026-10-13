@@ -754,7 +754,8 @@ var lucideIcons = {
 }
 
 // SVG data URL for an icon name, stroked in `color` so it follows the theme.
-function iconSource(name, color) {
+// strokeWidth is in 24-unit viewBox units, so it scales with the icon size.
+function iconSource(name, color, strokeWidth) {
   var paths = lucideIcons[name]
   if (!paths) return ""
   // QML colors stringify as #aarrggbb, which SVG does not read.
@@ -764,7 +765,7 @@ function iconSource(name, color) {
   var body = ""
   for (var i = 0; i < paths.length; ++i) body += '<path d="' + paths[i] + '"/>'
   var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="' + stroke +
-    '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + body + '</svg>'
+    '" stroke-width="' + (strokeWidth || 2) + '" stroke-linecap="round" stroke-linejoin="round">' + body + '</svg>'
   return "data:image/svg+xml;utf8," + encodeURIComponent(svg)
 }
 
