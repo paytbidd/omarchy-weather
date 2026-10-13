@@ -364,7 +364,7 @@ Panel {
     return Model.iconForOpenMeteoCode(code)
   }
 
-  // Mirrors omarchy-weather-icon's wttr.in code → nerd-font glyph mapping.
+  // wttr.in code → Phosphor icon name (see Model.iconSource).
   function iconForCode(code, night) {
     return Model.iconForCode(code, night)
   }
@@ -598,17 +598,30 @@ Panel {
           anchors.verticalCenter: parent.verticalCenter
           spacing: Style.space(16)
 
-          Text {
+          Item {
             id: heroIcon
-            textFormat: Text.PlainText
             anchors.verticalCenter: parent.verticalCenter
-            anchors.verticalCenterOffset: 5
-            text: root.label || "—"
-            color: root.bar.foreground
-            font.family: root.bar.fontFamily
-            // Decorative condition emoji; intentionally larger than the
-            // Style.font.* scale's displayLarge (28).
-            font.pixelSize: 64
+            width: 56
+            height: 56
+
+            Image {
+              anchors.fill: parent
+              visible: root.label !== ""
+              source: Model.iconSource(root.label, root.bar.foreground)
+              sourceSize.width: width
+              sourceSize.height: height
+              smooth: true
+            }
+
+            Text {
+              anchors.centerIn: parent
+              visible: root.label === ""
+              textFormat: Text.PlainText
+              text: "—"
+              color: root.bar.foreground
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.displayLarge
+            }
           }
 
           Row {
@@ -1039,13 +1052,14 @@ Panel {
                   font.letterSpacing: 1
                 }
 
-                Text {
+                Image {
                   anchors.horizontalCenter: parent.horizontalCenter
-                  textFormat: Text.PlainText
-                  text: root.dayIcon(modelData)
-                  color: root.bar.foreground
-                  font.family: root.bar.fontFamily
-                  font.pixelSize: Style.font.display
+                  width: Style.font.display
+                  height: Style.font.display
+                  source: Model.iconSource(root.dayIcon(modelData), root.bar.foreground)
+                  sourceSize.width: width
+                  sourceSize.height: height
+                  smooth: true
                 }
 
                 Row {
